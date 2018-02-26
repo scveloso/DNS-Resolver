@@ -23,6 +23,8 @@ public class DNSLookupService {
 
     private static Random random = new Random();
 
+    static int offset;
+
     /**
      * Main function, called when program is first invoked.
      *
@@ -246,7 +248,7 @@ public class DNSLookupService {
           // System.out.println("\n");
 
           // Beginning of extracting information from response
-          int offset = 0;
+          offset = 0;
           short ID = (short)((buf[offset] << 8) + (buf[offset + 1]));
           offset += 2;
           short flags = (short)((buf[offset] <<8) + (buf[offset + 1]));
@@ -271,18 +273,18 @@ public class DNSLookupService {
 
           // Extracting Questions
           for (int j = 0; j < (int) questions; j++) {
-            String qName = getNameFromBuffer(buf, offset);
+            String qName = getNameFromBuffer(buf);
             qName = qName.substring(0, qName.length() - 1);
             System.out.println("qName: " + qName);
 
-            String[] nameArr = qName.split("\\.");
-            for (int i = 0; i < nameArr.length; i++) {
-              offset +=1;
-              for (char nameChar : nameArr[i].toCharArray()) {
-                offset += 1;
-              }
-            }
-            offset += 1;
+            // String[] nameArr = qName.split("\\.");
+            // for (int i = 0; i < nameArr.length; i++) {
+            //   offset +=1;
+            //   for (char nameChar : nameArr[i].toCharArray()) {
+            //     offset += 1;
+            //   }
+            // }
+            // offset += 1;
 
             StringBuilder qType = new StringBuilder();
             qType.append("0x");
@@ -345,89 +347,10 @@ public class DNSLookupService {
             offset += 2;
 
             // Get ns
-            String nameServer = getNameFromBuffer(buf, offset);
+            String nameServer = getNameFromBuffer(buf);
             nameServer = nameServer.substring(0, nameServer.length() - 1);
             System.out.println("Name Server: " + nameServer);
-
-            // Update offset according to name
-            String[] nameArr = nameServer.split("\\.");
-            for (int i = 0; i < nameArr.length; i++) {
-              offset +=1;
-              for (char nameChar : nameArr[i].toCharArray()) {
-                offset += 1;
-              }
-            }
-            offset -=1;
           }
-
-          DataInputStream din = new DataInputStream(new ByteArrayInputStream(buf));
-          System.out.println("Transaction ID: 0x" + String.format("%x", din.readShort()));
-          System.out.println("Flags: 0x" + String.format("%x", din.readShort()));
-          System.out.println("Questions: 0x" + String.format("%x", din.readShort()));
-          System.out.println("Answers RRs: 0x" + String.format("%x", din.readShort()));
-          System.out.println("Authority RRs: 0x" + String.format("%x", din.readShort()));
-          System.out.println("Additional RRs: 0x" + String.format("%x", din.readShort()));
-
-          int recLen = 0; // record length
-          while ((recLen = din.readByte()) > 0) {
-              byte[] record = new byte[recLen];
-
-              for (int i = 0; i < recLen; i++) {
-                  record[i] = din.readByte();
-              }
-
-              System.out.println("Record: " + new String(record, "UTF-8"));
-          }
-
-          System.out.println("Record Type: 0x" + String.format("%x", din.readShort()));
-          System.out.println("Class: 0x" + String.format("%x", din.readShort()));
-
-          System.out.println("Authoritative Name Servers");
-
-
-          // First data
-          System.out.println("Name: " + String.format("%x", din.readShort()));
-          System.out.println("Type: " + String.format("%x", din.readShort()));
-          System.out.println("Class: " + String.format("%x", din.readShort()));
-          System.out.println("TTL: " + String.format("%x, %x", din.readShort(), din.readShort()));
-          short dataLen = din.readShort();
-          System.out.println("Data len: 0x" + String.format("%x", dataLen));
-
-          String name = getNameFromBuffer(buf, 39);
-          name = name.substring(0, name.length() - 1);
-
-          // int len = din.readByte(); // read len of 01
-          // for (int i = 0; i < len; i++) {
-          //   System.out.print((char) (din.readByte() & 0xFF));
-          // }
-          // System.out.print(".");
-          //
-          // len = din.readByte(); // read len of 01
-          // for (int i = 0; i < len; i++) {
-          //   System.out.print((char) (din.readByte() & 0xFF));
-          // }
-          // System.out.print(".");
-          // System.out.println("");
-          //
-          // short ptrLen = din.readShort();
-          // if ((ptrLen & 0xc000) == 0xc000) {
-          //   System.out.println("Pointer found");
-          //   short offset = (short)(ptrLen & 0x3FFF);
-          //   int intOffset = offset;
-          //   System.out.println("intoffset: " + intOffset);
-          //
-          //   // given buffer, and offset, get the string at that offset
-          //   String addr = "";
-          //   byte addrLen = buf[offset];
-          //   for (int i = 1; i <= addrLen; i++) {
-          //     addr += (char) (buf[offset + i] & 0xFF);
-          //   }
-          //
-          //   System.out.println("addr: " + addr);
-          //
-          //   System.out.println("offset: " + String.format("%x", offset));
-          // }
-          System.out.println("");
 
         } catch (Exception e) {
           System.out.println("Exception: " + e);
@@ -439,30 +362,40 @@ public class DNSLookupService {
         return cache.getCachedResults(node);
     }
 
-    private static String getNameFromBuffer(byte[] buf, int offset) {
+    // Get name from buffer
+    // If a pointer is encountered, call pointer helper
+    private static String getNameFromBuffer(byte[] buf) {
       String name = "";
       int len = buf[offset];
 
       if (len == 0) {
+        offset += 1;
         return name;
       }
 
       if ((len & 0xc0) == 0xc0) { // if it is a pointer
         short s = (short)((len << 8) + buf[offset + 1]);
+        System.out.println("s: " + String.format("%04x", s));
         short ptrOffset = (short) (s & 0x3FFF);
 
-        name += getNameFromBuffer(buf, ptrOffset);
+        name += getNameFromPointerInBuffer(buf, ptrOffset);
+        offset += 2;
       } else { // if not a pointer
+        offset += 1;
         for (int i = 1; i <= len; i++) {
-          name += (char) (buf[offset + i] & 0xFF);
+          name += (char) (buf[offset] & 0xFF);
+          offset += 1;
         }
         name += ".";
-        name += getNameFromBuffer(buf, offset + len + 1);
+        name += getNameFromBuffer(buf);
       }
 
       return name;
     }
 
+    // If the pointer points to another pointer,
+    // recursively get the name from those pointers and add it
+    // else simply get the name at this pointer location
     private static String getNameFromPointerInBuffer(byte[] buf, int ptrOffset) {
       String name = "";
       int len = buf[ptrOffset];
@@ -471,11 +404,18 @@ public class DNSLookupService {
         return name;
       }
 
-      for (int i = 1; i <= len; i++) {
-        name += (char) (buf[ptrOffset + i] & 0xFF);
+      if ((len & 0xc0) == 0xc0) { // if it is a pointer
+        short s = (short)((len << 8) + buf[ptrOffset + 1]);
+        short newPtrOffset = (short) (s & 0x3FFF);
+
+        name += getNameFromPointerInBuffer(buf, newPtrOffset);
+      } else {
+        for (int i = 1; i <= len; i++) {
+          name += (char) (buf[ptrOffset + i] & 0xFF);
+        }
+        name += ".";
+        name += getNameFromPointerInBuffer(buf, ptrOffset + len + 1);
       }
-      name += ".";
-      name += getNameFromPointerInBuffer(buf, ptrOffset + len + 1);
 
       return name;
     }
